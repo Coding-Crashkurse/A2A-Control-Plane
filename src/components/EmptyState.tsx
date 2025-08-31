@@ -1,5 +1,5 @@
-import { Paper, Stack, Typography, Box, Button, Chip, List, ListItem, ListItemIcon, ListItemText } from "@mui/material";
-import { ReactNode } from "react";
+import { Paper, Stack, Typography, Box, Chip, List, ListItem, ListItemIcon, ListItemText } from "@mui/material";
+import type { ReactNode } from "react";
 import { AddCircleOutline, Link as LinkIcon, LockOpen, CheckCircleOutline } from "@mui/icons-material";
 
 export default function EmptyState({

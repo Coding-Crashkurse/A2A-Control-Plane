@@ -32,7 +32,16 @@ import {
 import dayjs from "dayjs";
 
 import { getTask, cancelTask as cancelTaskApi } from "../../services/a2a/restClient";
-import type { Task, TaskState, Message, Part, TextPart, FilePart, DataPart } from "../../services/a2a/types";
+import type {
+  Task,
+  TaskState,
+  Message,
+  Part,
+  TextPart,
+  FilePart,
+  DataPart,
+  Artifact,
+} from "../../services/a2a/types";
 import PageHeader from "../../components/PageHeader";
 import { useAgents } from "../../context/AgentContext";
 
@@ -51,6 +60,9 @@ function fromNow(ts?: string) {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h}h ${m}m ago` : `${h}h ago`;
+}
+function fmt(ts?: string) {
+  return ts ? dayjs(ts).format("YYYY-MM-DD HH:mm:ss") : "—";
 }
 function prettyJSON(v: unknown) {
   try {
@@ -94,7 +106,7 @@ function messageIsMeaningful(m: Message) {
   if (!m?.parts || m.parts.length === 0) return false;
   return m.parts.some(partIsMeaningful);
 }
-function artifactIsMeaningful(a: Task["artifacts"][number]) {
+function artifactIsMeaningful(a: Artifact) {
   return a?.parts?.some(partIsMeaningful) ?? false;
 }
 
@@ -125,12 +137,18 @@ function StateChip({ state }: { state: TaskState }) {
 // ---------- part render ----------
 function TextBlock({ text }: { text: string }) {
   const copy = async () => {
-    try { await navigator.clipboard.writeText(text); } catch {}
+    try {
+      await navigator.clipboard.writeText(text ?? "");
+    } catch {}
   };
   return (
     <Paper variant="outlined" sx={{ p: 1, position: "relative", bgcolor: "background.paper" }}>
-      <Typography component="pre" variant="body2" sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace" }}>
-        {text}
+      <Typography
+        component="pre"
+        variant="body2"
+        sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace" }}
+      >
+        {text ?? ""}
       </Typography>
       <Tooltip title="Copy">
         <IconButton size="small" onClick={copy} sx={{ position: "absolute", top: 4, right: 4 }}>
@@ -145,9 +163,11 @@ function DataBlock({ data }: { data: any }) {
   return <TextBlock text={txt} />;
 }
 function FileBlock({ file }: { file: FilePart["file"] }) {
-  const name = (file as any)?.name || "file";
-  const mime = (file as any)?.mimeType ? ` • ${(file as any).mimeType}` : "";
-  const uri = (file as any)?.uri as string | undefined;
+  const f = file as any;
+  const name = f?.name || "file";
+  const mimeType = f?.mimeType ?? f?.mime_type; // beides unterstützen
+  const mime = mimeType ? ` • ${mimeType}` : "";
+  const uri = f?.uri as string | undefined;
   return (
     <Stack direction="row" spacing={1} alignItems="center">
       <Chip label={name + mime} />
@@ -157,7 +177,11 @@ function FileBlock({ file }: { file: FilePart["file"] }) {
         </Button>
       ) : (
         <Tooltip title="No URI provided">
-          <span><Button size="small" variant="outlined" disabled startIcon={<DownloadIcon />}>Download</Button></span>
+          <span>
+            <Button size="small" variant="outlined" disabled startIcon={<DownloadIcon />}>
+              Download
+            </Button>
+          </span>
         </Tooltip>
       )}
     </Stack>
@@ -166,21 +190,31 @@ function FileBlock({ file }: { file: FilePart["file"] }) {
 function renderPart(p: Part, idx: number) {
   if (!partIsMeaningful(p)) return null;
   switch (p.kind) {
-    case "text": return <TextBlock key={idx} text={(p as TextPart).text} />;
-    case "data": return <DataBlock key={idx} data={(p as DataPart).data} />;
-    case "file": return <FileBlock key={idx} file={(p as FilePart).file} />;
-    default: return null;
+    case "text":
+      return <TextBlock key={idx} text={(p as TextPart).text} />;
+    case "data":
+      return <DataBlock key={idx} data={(p as DataPart).data} />;
+    case "file":
+      return <FileBlock key={idx} file={(p as FilePart).file} />;
+    default:
+      return null;
   }
 }
 
 // ---------- page ----------
 export default function TaskDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams();
+  const id = params.id;
   const { activeConn } = useAgents();
 
-  const { data: task, isLoading, error, refetch } = useQuery<Task>({
+  const {
+    data: task,
+    isPending,
+    error,
+    refetch,
+  } = useQuery<Task>({
     queryKey: ["task", activeConn?.baseUrl, id],
-    enabled: !!activeConn && !!id,
+    enabled: Boolean(activeConn && id),
     queryFn: () => getTask(activeConn!, id!),
   });
 
@@ -209,7 +243,7 @@ export default function TaskDetailPage() {
       await doCancel();
       setConfirmOpen(false);
     } catch {
-      // Error is shown below as an Alert
+      // Error wird unten gezeigt
     }
   };
 
@@ -219,10 +253,8 @@ export default function TaskDetailPage() {
         title={`Task ${id ?? ""}`}
         subtitle={
           task ? (
-            // PageHeader renders subtitle with component="div", so chips are allowed
             <>
-              State: <StateChip state={task.status.state} /> · Updated:{" "}
-              {dayjs(task.status.timestamp).format("YYYY-MM-DD HH:mm:ss")}
+              State: <StateChip state={task.status.state} /> · Updated: {fmt(task.status.timestamp)}
             </>
           ) : undefined
         }
@@ -247,30 +279,40 @@ export default function TaskDetailPage() {
           {(cancelError as Error).message}
         </Alert>
       )}
-      {isLoading && <Alert severity="info">Loading task…</Alert>}
+      {isPending && <Alert severity="info">Loading task…</Alert>}
       {error && <Alert severity="error">{String((error as Error).message)}</Alert>}
-      {!task && !isLoading && !error && <Alert severity="warning">No task found.</Alert>}
+      {!task && !isPending && !error && <Alert severity="warning">No task found.</Alert>}
 
       {task && (
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 2 }}>
           {/* Status */}
           <Paper variant="outlined" sx={{ p: 2 }}>
-            <Typography variant="h6" sx={{ mb: 1 }}>Status</Typography>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Status
+            </Typography>
             <Stack spacing={1}>
               <Box>
-                <Typography variant="caption" color="text.secondary">State</Typography>
-                <Box sx={{ mt: 0.5 }}><StateChip state={task.status.state} /></Box>
+                <Typography variant="caption" color="text.secondary">
+                  State
+                </Typography>
+                <Box sx={{ mt: 0.5 }}>
+                  <StateChip state={task.status.state} />
+                </Box>
               </Box>
               <Box>
-                <Typography variant="caption" color="text.secondary">Updated</Typography>
-                <Typography variant="body2">
-                  {dayjs(task.status.timestamp).format("YYYY-MM-DD HH:mm:ss")}
+                <Typography variant="caption" color="text.secondary">
+                  Updated
                 </Typography>
+                <Typography variant="body2">{fmt(task.status.timestamp)}</Typography>
               </Box>
               {task.contextId && (
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Context</Typography>
-                  <Typography variant="body2" sx={{ fontFamily: "monospace" }}>{task.contextId}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Context
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                    {task.contextId}
+                  </Typography>
                 </Box>
               )}
               <Divider sx={{ my: 1 }} />
@@ -283,7 +325,9 @@ export default function TaskDetailPage() {
                     <Chip size="small" label={`agent ${agentMsgs}`} />
                   </>
                 )}
-                {meaningfulArtifacts.length > 0 && <Chip size="small" label={`artifacts ${meaningfulArtifacts.length}`} />}
+                {meaningfulArtifacts.length > 0 && (
+                  <Chip size="small" label={`artifacts ${meaningfulArtifacts.length}`} />
+                )}
               </Stack>
             </Stack>
           </Paper>
@@ -291,14 +335,24 @@ export default function TaskDetailPage() {
           {/* History (only if meaningful) */}
           {meaningfulHistory.length > 0 && (
             <Paper variant="outlined" sx={{ p: 2 }}>
-              <Typography variant="h6" sx={{ mb: 1 }}>History</Typography>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                History
+              </Typography>
               <Stack spacing={1}>
                 {meaningfulHistory.map((m, idx) => (
-                  <Paper key={idx} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "background.default" }}>
+                  <Paper
+                    key={m.messageId || idx}
+                    variant="outlined"
+                    sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "background.default" }}
+                  >
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                       <Chip size="small" label={m.role} />
                       {m.messageId && (
-                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace" }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontFamily: "monospace" }}
+                        >
                           {m.messageId}
                         </Typography>
                       )}
@@ -313,7 +367,9 @@ export default function TaskDetailPage() {
           {/* Artifacts (only if meaningful) */}
           {meaningfulArtifacts.length > 0 && (
             <Paper variant="outlined" sx={{ p: 2 }}>
-              <Typography variant="h6" sx={{ mb: 1 }}>Artifacts</Typography>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                Artifacts
+              </Typography>
               <Stack spacing={1}>
                 {meaningfulArtifacts.map((a) => (
                   <Paper key={a.artifactId} variant="outlined" sx={{ p: 1.5 }}>
@@ -331,16 +387,30 @@ export default function TaskDetailPage() {
       )}
 
       {/* Confirm dialog */}
-      <Dialog open={confirmOpen} onClose={() => (canceling ? null : setConfirmOpen(false))}>
+      <Dialog
+        open={confirmOpen}
+        onClose={(_, __) => {
+          if (!canceling) setConfirmOpen(false);
+        }}
+      >
         <DialogTitle>Cancel task?</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            The task will be marked as <strong>canceled</strong>. This action is generally not reversible.
+            The task will be marked as <strong>canceled</strong>. This action is generally not
+            reversible.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)} disabled={canceling}>Cancel</Button>
-          <Button onClick={confirmCancel} color="warning" variant="contained" startIcon={<DoDisturbOutlined />} disabled={canceling}>
+          <Button onClick={() => setConfirmOpen(false)} disabled={canceling}>
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmCancel}
+            color="warning"
+            variant="contained"
+            startIcon={<DoDisturbOutlined />}
+            disabled={canceling}
+          >
             Cancel Task
           </Button>
         </DialogActions>

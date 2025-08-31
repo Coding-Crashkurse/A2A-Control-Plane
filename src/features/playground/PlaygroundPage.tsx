@@ -12,8 +12,12 @@ import {
   ToggleButtonGroup,
   Chip,
   Tooltip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Link,
 } from "@mui/material";
-import { Send, Bolt, PlayArrow, RestartAlt } from "@mui/icons-material";
+import { Send, Bolt, PlayArrow, RestartAlt, ExpandMore } from "@mui/icons-material";
 import dayjs from "dayjs";
 
 import PageHeader from "../../components/PageHeader";
@@ -37,7 +41,37 @@ type SavedState = {
   contextId?: string;
   mode: "blocking" | "stream";
   lastState?: TaskState;
+
+  // Inspector
+  statusText?: string;
+  artifacts?: any[];
 };
+
+function textFromParts(parts?: any[]) {
+  if (!Array.isArray(parts)) return "";
+  return parts.filter((p) => p?.kind === "text" && typeof p.text === "string").map((p) => p.text).join("\n");
+}
+
+function colorForState(s?: TaskState): any {
+  switch (s) {
+    case "completed":
+      return "success";
+    case "working":
+      return "warning";
+    case "failed":
+    case "rejected":
+      return "error";
+    case "submitted":
+    case "input-required":
+      return "info";
+    case "auth-required":
+      return "secondary";
+    case "canceled":
+      return "default";
+    default:
+      return "default";
+  }
+}
 
 export default function PlaygroundPage() {
   const { activeConn, activeId } = useAgents();
@@ -50,6 +84,10 @@ export default function PlaygroundPage() {
   const [sending, setSending] = useState(false);
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
 
+  // Inspector state
+  const [statusText, setStatusText] = useState<string>(""); // optional agent note
+  const [artifacts, setArtifacts] = useState<any[]>([]);
+
   const listRef = useRef<HTMLDivElement | null>(null);
   const pendingAgentIdRef = useRef<string | null>(null);
 
@@ -60,6 +98,8 @@ export default function PlaygroundPage() {
     contextId: undefined,
     mode: "stream",
     lastState: undefined,
+    statusText: "",
+    artifacts: [],
   });
 
   const updateSnap = (patch: Partial<SavedState>) => {
@@ -77,6 +117,8 @@ export default function PlaygroundPage() {
       contextId: snapRef.current.contextId ?? base.contextId,
       mode: snapRef.current.mode ?? (base.mode as any) ?? "stream",
       lastState: snapRef.current.lastState ?? (base.lastState as any),
+      statusText: snapRef.current.statusText ?? base.statusText,
+      artifacts: snapRef.current.artifacts ?? base.artifacts ?? [],
       ...(patch || {}),
     };
     sessionStorage.setItem(keyOf(activeId), JSON.stringify(merged));
@@ -95,6 +137,8 @@ export default function PlaygroundPage() {
         setContextId(s.contextId);
         setMode(s.mode ?? "stream");
         setLastState(s.lastState);
+        setStatusText(s.statusText ?? "");
+        setArtifacts(s.artifacts ?? []);
         pendingAgentIdRef.current =
           [...(s.msgs ?? [])].reverse().find((m) => m.role === "agent" && m.pending)?.id ?? null;
 
@@ -105,6 +149,8 @@ export default function PlaygroundPage() {
           contextId: s.contextId,
           mode: s.mode ?? "stream",
           lastState: s.lastState,
+          statusText: s.statusText ?? "",
+          artifacts: s.artifacts ?? [],
         };
         log("restored", { taskId: s.taskId, lastState: s.lastState, msgs: s.msgs?.length ?? 0 });
 
@@ -118,8 +164,18 @@ export default function PlaygroundPage() {
         setContextId(undefined);
         setMode("stream");
         setLastState(undefined);
+        setStatusText("");
+        setArtifacts([]);
         pendingAgentIdRef.current = null;
-        snapRef.current = { msgs: [], taskId: undefined, contextId: undefined, mode: "stream", lastState: undefined };
+        snapRef.current = {
+          msgs: [],
+          taskId: undefined,
+          contextId: undefined,
+          mode: "stream",
+          lastState: undefined,
+          statusText: "",
+          artifacts: [],
+        };
         log("no saved state");
       }
     } catch (e) {
@@ -160,6 +216,44 @@ export default function PlaygroundPage() {
     setMsgs((prev) => {
       const next = prev.map((x) => (x.id === id ? { ...x, text, pending } : x));
       updateSnap({ msgs: next });
+      persist();
+      return next;
+    });
+  };
+
+  // -------- Inspector helpers
+  const setNoteFromMessage = (msg: any) => {
+    if (!msg) return;
+    const t = textFromParts(msg.parts);
+    if (t) {
+      setStatusText(t);
+      updateSnap({ statusText: t });
+      persist();
+    }
+  };
+
+  const replaceArtifacts = (arr?: any[]) => {
+    if (!Array.isArray(arr)) return;
+    setArtifacts(arr);
+    updateSnap({ artifacts: arr });
+    persist();
+  };
+
+  const upsertArtifact = (a: any, append?: boolean) => {
+    if (!a) return;
+    setArtifacts((prev) => {
+      const idx = prev.findIndex((x: any) => x?.artifactId === a.artifactId);
+      let next = [...prev];
+      if (idx >= 0) {
+        if (append && Array.isArray(next[idx]?.parts) && Array.isArray(a.parts)) {
+          next[idx] = { ...next[idx], parts: [...next[idx].parts, ...a.parts] };
+        } else {
+          next[idx] = { ...next[idx], ...a };
+        }
+      } else {
+        next.push(a);
+      }
+      updateSnap({ artifacts: next });
       persist();
       return next;
     });
@@ -209,39 +303,71 @@ export default function PlaygroundPage() {
       await resubscribeTask(activeConn, useTid, (ev: any) => {
         const kind = ev?.kind;
 
-        if (kind === "status-update") {
-          if (!snapRef.current.taskId && ev?.taskId) {
-            setTaskId(ev.taskId);
-            updateSnap({ taskId: ev.taskId });
-            persist();
+        if (kind === "task") {
+          if (ev?.id) {
+            setTaskId(ev.id);
+            updateSnap({ taskId: ev.id });
           }
-          if (ev?.contextId && !snapRef.current.contextId) {
+          if (ev?.contextId) {
             setContextId(ev.contextId);
             updateSnap({ contextId: ev.contextId });
-            persist();
           }
           if (ev?.status?.state) {
             setLastState(ev.status.state);
             updateSnap({ lastState: ev.status.state });
-            persist();
           }
+          if (Array.isArray(ev?.artifacts)) replaceArtifacts(ev.artifacts);
+          if (ev?.status?.message) setNoteFromMessage(ev.status.message);
+          persist();
+        }
+
+        if (kind === "status-update") {
+          if (!snapRef.current.taskId && ev?.taskId) {
+            setTaskId(ev.taskId);
+            updateSnap({ taskId: ev.taskId });
+          }
+          if (ev?.contextId && !snapRef.current.contextId) {
+            setContextId(ev.contextId);
+            updateSnap({ contextId: ev.contextId });
+          }
+          if (ev?.status?.state) {
+            setLastState(ev.status.state);
+            updateSnap({ lastState: ev.status.state });
+          }
+          if (ev?.status?.message) {
+            const ttxt = textFromParts(ev.status.message.parts);
+            if (ttxt) {
+              if (!bubbleId) bubbleId = createAgentBubble();
+              acc = acc ? `${acc}\n${ttxt}` : ttxt;
+              updateAgentMsg(bubbleId!, acc, true);
+            }
+            setNoteFromMessage(ev.status.message);
+          }
+          persist();
         }
 
         if (kind === "message" && ev.role === "agent") {
-          if (!bubbleId) bubbleId = createAgentBubble();
-          const parts = (ev.parts || []).filter((p: any) => p.kind === "text");
-          if (parts.length) {
-            acc += parts.map((p: any) => p.text).join("");
+          const parts = ev.parts || [];
+          const ttxt = textFromParts(parts);
+          if (ttxt) {
+            if (!bubbleId) bubbleId = createAgentBubble();
+            acc += (acc ? "" : "") + ttxt;
             updateAgentMsg(bubbleId!, acc, true);
+            setStatusText(ttxt);
+            updateSnap({ statusText: ttxt });
+            persist();
           }
         } else if (kind === "artifact-update") {
+          upsertArtifact(ev.artifact, ev.append);
           const parts = (ev.artifact?.parts || []).filter((p: any) => p.kind === "text");
           if (parts.length) {
             if (!bubbleId) bubbleId = createAgentBubble();
             acc += parts.map((p: any) => p.text).join("");
             updateAgentMsg(bubbleId!, acc, true);
           }
-        } else if (kind === "status-update") {
+        }
+
+        if (kind === "status-update") {
           if (ev?.final || ["completed", "failed", "canceled"].includes(ev?.status?.state)) {
             if (bubbleId) updateAgentMsg(bubbleId, acc || "(completed)", false);
             setSending(false);
@@ -250,6 +376,7 @@ export default function PlaygroundPage() {
             log("subscribe finished");
           }
         }
+
         log("SSE (resume)", kind, ev);
       });
     } catch (e) {
@@ -297,7 +424,10 @@ export default function PlaygroundPage() {
           setContextId(t.contextId);
           setLastState(t?.status?.state);
           updateSnap({ taskId: t.id, contextId: t.contextId, lastState: t?.status?.state });
-          persist();
+
+          // Inspector from Task result
+          if (Array.isArray(t?.artifacts)) replaceArtifacts(t.artifacts);
+          if (t?.status?.message) setNoteFromMessage(t.status.message);
 
           const lastAgent = (t.history || []).slice().reverse().find((m: any) => m.role === "agent");
           const txt =
@@ -305,6 +435,7 @@ export default function PlaygroundPage() {
               ? (lastAgent.parts || []).filter((p: any) => p.kind === "text").map((p: any) => p.text).join("\n\n")
               : "(completed)";
           updateAgentMsg(id, txt, false);
+          persist();
         } else {
           const m = res as any;
           if (m.taskId) {
@@ -312,14 +443,14 @@ export default function PlaygroundPage() {
             updateSnap({ taskId: m.taskId });
             persist();
           }
-          // Direct message implies no task lifecycle. Treat as completed reply.
           setLastState("completed");
           updateSnap({ lastState: "completed" });
-          persist();
-
           const txt =
             (m.parts || []).filter((p: any) => p.kind === "text").map((p: any) => p.text).join("\n\n") || "(completed)";
           updateAgentMsg(id, txt, false);
+          setStatusText(txt);
+          updateSnap({ statusText: txt });
+          persist();
         }
       } catch (e: any) {
         const id = createAgentBubble();
@@ -347,6 +478,8 @@ export default function PlaygroundPage() {
           setTaskId(ev.id);
           setContextId(ev.contextId);
           updateSnap({ taskId: ev.id, contextId: ev.contextId });
+          if (Array.isArray(ev?.artifacts)) replaceArtifacts(ev.artifacts);
+          if (ev?.status?.message) setNoteFromMessage(ev.status.message);
           persist();
         }
 
@@ -367,15 +500,28 @@ export default function PlaygroundPage() {
             updateSnap({ lastState: ev.status.state });
             persist();
           }
+          if (ev?.status?.message) {
+            const ttxt = textFromParts(ev.status.message.parts);
+            if (ttxt) {
+              acc = acc ? `${acc}\n${ttxt}` : ttxt;
+              updateAgentMsg(bubbleId, acc, true);
+            }
+            setNoteFromMessage(ev.status.message);
+          }
         }
 
         if (kind === "message" && ev.role === "agent") {
-          const parts = (ev.parts || []).filter((p: any) => p.kind === "text");
-          if (parts.length) {
-            acc += parts.map((p: any) => p.text).join("");
+          const parts = (ev.parts || []);
+          const ttxt = textFromParts(parts);
+          if (ttxt) {
+            acc += ttxt;
             updateAgentMsg(bubbleId, acc, true);
+            setStatusText(ttxt);
+            updateSnap({ statusText: ttxt });
+            persist();
           }
         } else if (kind === "artifact-update") {
+          upsertArtifact(ev.artifact, ev.append);
           const parts = (ev.artifact?.parts || []).filter((p: any) => p.kind === "text");
           if (parts.length) {
             acc += parts.map((p: any) => p.text).join("");
@@ -403,8 +549,17 @@ export default function PlaygroundPage() {
     setTaskId(undefined);
     setContextId(undefined);
     setLastState(undefined);
+    setStatusText("");
+    setArtifacts([]);
     pendingAgentIdRef.current = null;
-    updateSnap({ msgs: [], taskId: undefined, contextId: undefined, lastState: undefined });
+    updateSnap({
+      msgs: [],
+      taskId: undefined,
+      contextId: undefined,
+      lastState: undefined,
+      statusText: "",
+      artifacts: [],
+    });
     if (activeId) sessionStorage.removeItem(keyOf(activeId));
     log("cleared chat");
   };
@@ -435,7 +590,7 @@ export default function PlaygroundPage() {
           <Stack direction="row" spacing={1}>
             {taskId && <Chip size="small" label={`task: ${taskId.slice(0, 8)}…`} />}
             {contextId && <Chip size="small" label={`ctx: ${contextId.slice(0, 8)}…`} />}
-            {lastState && <Chip size="small" label={`state: ${lastState}`} />}
+            {lastState && <Chip size="small" label={`state: ${lastState}`} color={colorForState(lastState)} />}
             <ToggleButtonGroup size="small" value={mode} exclusive onChange={(_, v) => v && setMode(v)}>
               <ToggleButton value="blocking">
                 <PlayArrow fontSize="small" sx={{ mr: 0.5 }} />
@@ -457,10 +612,19 @@ export default function PlaygroundPage() {
         }
       />
 
-      <Box sx={{ display: "grid", gridTemplateRows: "1fr auto", height: "calc(100vh - 180px)" }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", md: "1fr 360px" },
+          gridTemplateRows: "1fr auto",
+          gap: 1.5,
+          height: "calc(100vh - 180px)",
+        }}
+      >
+        {/* Chat panel */}
         <Paper
           variant="outlined"
-          sx={{ p: 2, mb: 1.5, borderRadius: 2, overflow: "hidden", display: "flex", flexDirection: "column" }}
+          sx={{ p: 2, borderRadius: 2, overflow: "hidden", display: "flex", flexDirection: "column" }}
         >
           <Stack ref={listRef} spacing={1.5} sx={{ overflowY: "auto", pr: 1, height: "100%" }}>
             {msgs.map((m) => (
@@ -496,7 +660,140 @@ export default function PlaygroundPage() {
           </Stack>
         </Paper>
 
-        <Paper variant="outlined" sx={{ p: 1, borderRadius: 2 }}>
+        {/* Inspector panel */}
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 1.5,
+            borderRadius: 2,
+            display: { xs: "none", md: "flex" },
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Task inspector
+          </Typography>
+
+          {/* State */}
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              State
+            </Typography>
+            <Box sx={{ mt: 0.5 }}>
+              <Chip size="small" label={lastState ?? "—"} color={colorForState(lastState)} />
+            </Box>
+          </Box>
+
+          {/* Agent message (optional) */}
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              Agent message
+            </Typography>
+            <Paper variant="outlined" sx={{ p: 1, mt: 0.5, borderRadius: 1.5 }}>
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {statusText || "—"}
+              </Typography>
+            </Paper>
+          </Box>
+
+          {/* Artifacts */}
+          <Box sx={{ flex: 1, minHeight: 0 }}>
+            <Typography variant="caption" color="text.secondary">
+              Artifacts
+            </Typography>
+            <Box sx={{ overflowY: "auto", mt: 0.5, pr: 0.5 }}>
+              {artifacts?.length ? (
+                <Stack spacing={1}>
+                  {artifacts.map((a: any) => (
+                    <Accordion key={a.artifactId} disableGutters sx={{ "&:before": { display: "none" } }}>
+                      <AccordionSummary expandIcon={<ExpandMore />}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%", overflow: "hidden" }}>
+                          <Typography variant="body2" sx={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {a.name || a.artifactId}
+                          </Typography>
+                          <Chip size="small" label={a?.parts?.[0]?.kind || "parts"} />
+                        </Stack>
+                      </AccordionSummary>
+                      <AccordionDetails>
+                        {a.description && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                            {a.description}
+                          </Typography>
+                        )}
+                        {(a.parts || []).map((p: any, idx: number) => {
+                          if (p.kind === "text") {
+                            return (
+                              <Paper key={idx} variant="outlined" sx={{ p: 1, mb: 1 }}>
+                                <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                                  {p.text}
+                                </Typography>
+                              </Paper>
+                            );
+                          }
+                          if (p.kind === "data") {
+                            return (
+                              <Paper key={idx} variant="outlined" sx={{ p: 1, mb: 1 }}>
+                                <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: "pre-wrap" }}>
+                                  {JSON.stringify(p.data, null, 2)}
+                                </Typography>
+                              </Paper>
+                            );
+                          }
+                          if (p.kind === "file") {
+                            const f = p.file || {};
+                            const mime = f?.mimeType || f?.mime_type;
+                            const isImg = (mime || "").toString().startsWith("image/") && typeof f?.uri === "string";
+                            return (
+                              <Paper key={idx} variant="outlined" sx={{ p: 1, mb: 1 }}>
+                                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                                  {f?.name || "file"}{" "}
+                                  {mime ? (
+                                    <Typography component="span" variant="caption" color="text.secondary">
+                                      ({mime})
+                                    </Typography>
+                                  ) : null}
+                                </Typography>
+                                {isImg ? (
+                                  <Box
+                                    component="img"
+                                    src={f.uri}
+                                    alt={f?.name || "image"}
+                                    sx={{ maxWidth: "100%", borderRadius: 1 }}
+                                  />
+                                ) : f?.uri ? (
+                                  <Link href={f.uri} target="_blank" rel="noopener" underline="hover">
+                                    Open file
+                                  </Link>
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">
+                                    bytes provided
+                                  </Typography>
+                                )}
+                              </Paper>
+                            );
+                          }
+                          return (
+                            <Typography key={idx} variant="caption" color="text.secondary">
+                              Unsupported part
+                            </Typography>
+                          );
+                        })}
+                      </AccordionDetails>
+                    </Accordion>
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No artifacts yet.
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        </Paper>
+
+        {/* Input bar spanning all columns */}
+        <Paper variant="outlined" sx={{ p: 1, borderRadius: 2, gridColumn: { xs: "1 / -1", md: "1 / -1" } }}>
           <Stack direction="row" spacing={1} alignItems="center">
             <TextField
               fullWidth

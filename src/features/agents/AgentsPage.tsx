@@ -165,7 +165,7 @@ export default function AgentsPage() {
     setOk(null);
     try {
       await addByCard(url, auth || undefined);
-      setOk("Agent hinzugefügt und aktiviert.");
+      setOk("Agent added and activated.");
     } catch (e: any) {
       setErr(e.message);
     }
@@ -183,7 +183,7 @@ export default function AgentsPage() {
       const card = await fetchAgentCard(cardUrl, ag.auth);
       setCardCache((s) => ({ ...s, [ag.id]: card }));
     } catch {
-      // Hinweis in UI
+      // note in UI
     }
   }
 
@@ -195,7 +195,7 @@ export default function AgentsPage() {
             <TextField
               fullWidth
               size="small"
-              label="Agent-Card URL"
+              label="Agent Card URL"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
@@ -218,7 +218,7 @@ export default function AgentsPage() {
             }}
           >
             <Button onClick={add} sx={{ minWidth: 160, height: 40 }} fullWidth>
-              Hinzufügen
+              Add
             </Button>
           </Grid>
         </Grid>
@@ -298,7 +298,7 @@ export default function AgentsPage() {
                     )}
                   </Stack>
                   {ag.id === activeId && (
-                    <Chip size="small" color="primary" label="aktiv" />
+                    <Chip size="small" color="primary" label="active" />
                   )}
                 </Stack>
               </AccordionSummary>
@@ -317,7 +317,7 @@ export default function AgentsPage() {
                       startIcon={<CheckCircle />}
                       onClick={() => setActive(ag.id)}
                     >
-                      Als aktiv setzen
+                      Set active
                     </Button>
                   )}
                   <IconButton aria-label="delete" onClick={() => remove(ag.id)}>
@@ -415,7 +415,7 @@ export default function AgentsPage() {
                             <Chip
                               size="small"
                               icon={<InfoOutlined />}
-                              label="keine SecuritySchemes deklariert"
+                              label="no security schemes declared"
                             />
                           )}
 
@@ -453,7 +453,7 @@ export default function AgentsPage() {
                             <>
                               <Divider />
                               <Typography variant="subtitle2">
-                                Dokumentation
+                                Documentation
                               </Typography>
                               <MLink
                                 href={summary.documentationUrl}
@@ -484,7 +484,7 @@ export default function AgentsPage() {
                                 variant="body2"
                                 color="text.secondary"
                               >
-                                Keine Skills deklariert.
+                                No skills declared.
                               </Typography>
                             </Grid>
                           )}
@@ -494,8 +494,8 @@ export default function AgentsPage() {
                   </Paper>
                 ) : (
                   <Alert severity="info" sx={{ m: 1 }}>
-                    Keine Agent‑Card im Speicher. Beim Öffnen wird versucht, sie
-                    automatisch über die Base‑URL zu laden.
+                    No agent card cached. On expand the app will try to load it
+                    automatically from the base URL.
                   </Alert>
                 )}
               </AccordionDetails>

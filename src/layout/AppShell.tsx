@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { AppBar, Toolbar, Typography, Box, Drawer, List, ListItemButton } from "@mui/material";
 import { Link, useLocation } from "react-router-dom";
 

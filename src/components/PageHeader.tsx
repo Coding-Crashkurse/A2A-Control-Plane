@@ -1,5 +1,5 @@
 import { Box, Typography, Stack } from "@mui/material";
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export default function PageHeader({
   title,
