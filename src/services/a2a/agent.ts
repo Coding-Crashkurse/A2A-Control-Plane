@@ -1,54 +1,67 @@
-// src/services/a2a/agent.ts
-import type { AgentCard, AgentInterface } from "./types";
+import type { AgentCard } from "./types";
 
-/** Card laden, optional mit Authorization */
-export async function fetchAgentCard(cardUrl: string, auth?: string): Promise<AgentCard> {
-  const res = await fetch(cardUrl, {
-    headers: auth ? { Authorization: auth } : undefined,
+/** Configure proxy and optionally return the card. */
+export async function configureProxy(params: {
+  cardUrl?: string;
+  restBase?: string;
+  authBearer?: string;
+}): Promise<{ restBase: string; configured: boolean; card?: AgentCard }> {
+  const res = await fetch("/control/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
   });
-  if (!res.ok) throw new Error(`Card fetch failed ${res.status}`);
-  return (await res.json()) as AgentCard;
+  if (!res.ok) throw new Error(`config ${res.status}`);
+  return (await res.json()) as any;
 }
 
-/** Aus einer REST-Base-URL die Card-URL ableiten */
-export function deriveCardUrlFromBase(baseUrl: string): string {
-  const u = new URL(baseUrl);
-  return `${u.origin}/.well-known/agent-card.json`;
+/** Fetch Agent Card via UI server. If auth given, set it first via /control/config. */
+export async function fetchAgentCard(cardUrl: string, authBearer?: string): Promise<AgentCard> {
+  if (authBearer && authBearer.trim()) {
+    const data = await configureProxy({ cardUrl, authBearer });
+    if (!data.card) throw new Error("card missing in /control/config response");
+    return data.card as AgentCard;
+  }
+  const r = await fetch(`/control/card?url=${encodeURIComponent(cardUrl)}`);
+  if (!r.ok) throw new Error(`card ${r.status}`);
+  return (await r.json()) as AgentCard;
+}
+
+export function deriveCardUrlFromBase(base: string): string {
+  return `${base.replace(/\/$/, "")}/.well-known/agent-card.json`;
 }
 
 export function isRestCapable(card: AgentCard): boolean {
-  if (card.preferredTransport === "HTTP+JSON") return true;
-  return !!card.additionalInterfaces?.some((i) => i.transport === "HTTP+JSON");
+  const anyCard: any = card as any;
+  const pref = anyCard.preferredTransport ?? anyCard.preferred_transport;
+  const url = anyCard.url;
+  if (pref === "HTTP+JSON" && url) return true;
+  const add = anyCard.additionalInterfaces ?? anyCard.additional_interfaces ?? [];
+  return !!add.find((i: any) => i.transport === "HTTP+JSON");
 }
 
-export function allInterfaces(card: AgentCard): AgentInterface[] {
-  const main: AgentInterface = { url: card.url, transport: card.preferredTransport || "JSONRPC" };
-  const extra = card.additionalInterfaces ?? [];
-  const seen = new Set<string>();
-  return [main, ...extra].filter((i) => {
-    const key = `${i.transport}|${i.url}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-export function restInterface(card: AgentCard): AgentInterface | null {
-  return allInterfaces(card).find((i) => i.transport === "HTTP+JSON") || null;
-}
-
+/** Minimal summary for UI badges. */
 export function summarizeCard(card: AgentCard) {
+  const anyCard: any = card as any;
+  const capabilities = anyCard.capabilities ?? {};
+  const interfaces =
+    anyCard.additionalInterfaces ?? anyCard.additional_interfaces ?? [];
   return {
-    name: card.name,
-    version: card.version,
-    preferredTransport: card.preferredTransport || "JSONRPC",
-    interfaces: allInterfaces(card),
-    capabilities: card.capabilities ?? {},
-    defaultInputModes: card.defaultInputModes ?? [],
-    defaultOutputModes: card.defaultOutputModes ?? [],
-    skills: card.skills ?? [],
-    securitySchemes: card.securitySchemes ?? {},
-    provider: card.provider,
-    documentationUrl: card.documentationUrl,
+    name: anyCard.name,
+    version: anyCard.version,
+    preferredTransport: anyCard.preferredTransport ?? anyCard.preferred_transport,
+    defaultInputModes: anyCard.defaultInputModes ?? [],
+    defaultOutputModes: anyCard.defaultOutputModes ?? [],
+    interfaces: interfaces.map((i: any) => ({ transport: i.transport, url: i.url })),
+    capabilities: {
+      streaming: !!capabilities.streaming,
+      pushNotifications: !!(capabilities.pushNotifications ?? capabilities.push_notifications),
+      stateTransitionHistory: !!(capabilities.stateTransitionHistory ?? capabilities.state_transition_history),
+      extensions: capabilities.extensions ?? [],
+    },
+    securitySchemes: anyCard.securitySchemes ?? anyCard.security_schemes ?? {},
+    provider: anyCard.provider ?? null,
+    documentationUrl: anyCard.documentationUrl ?? anyCard.documentation_url ?? null,
+    skills: (anyCard.skills ?? []) as any[],
   };
 }

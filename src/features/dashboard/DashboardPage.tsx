@@ -1,4 +1,3 @@
-// src/features/dashboard/DashboardPage.tsx
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listTasks } from "../../services/a2a/restClient";
@@ -147,7 +146,6 @@ export default function DashboardPage() {
     queryFn: () => listTasks(activeConn),
   });
 
-  // counts per state
   const byState = tasks.reduce<Record<string, number>>((acc, t) => {
     const s = t.status.state;
     acc[s] = (acc[s] || 0) + 1;
@@ -165,7 +163,6 @@ export default function DashboardPage() {
   const canceledNow = byState["canceled"] || 0;
   const unknownNow = byState["unknown"] || 0;
 
-  // ---------- metrics based on timestamps ----------
   const now = dayjs();
   const last24 = now.subtract(24, "hour").valueOf();
 
@@ -195,7 +192,6 @@ export default function DashboardPage() {
   const p50 = quantile(wipAgesMin, 0.5);
   const p95 = quantile(wipAgesMin, 0.95);
 
-  // Buckets: last 8 hours, recalculated every render; no mutation between renders
   const { trendX, trendY } = useMemo(() => {
     const edges: { start: number; end: number; label: string }[] = [];
     for (let i = 7; i >= 0; i--) {
@@ -215,7 +211,6 @@ export default function DashboardPage() {
     return { trendX: edges.map((e) => e.label), trendY: counts };
   }, [tasks, activeId]);
 
-  // recent list: sort by timestamp desc
   const recent = [...tasks]
     .sort((a, b) => (parseTs(b.status.timestamp) ?? 0) - (parseTs(a.status.timestamp) ?? 0))
     .slice(0, 12);
@@ -234,7 +229,7 @@ export default function DashboardPage() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{String((error as Error).message)}</Alert>}
 
       <Grid container spacing={2} alignItems="stretch">
-        {/* Row 1 */}
+        {/* KPIs */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiCard
             icon={<CheckCircleOutline color="success" />}
@@ -245,66 +240,29 @@ export default function DashboardPage() {
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            icon={<Autorenew color="warning" />}
-            title="Working"
-            value={workingNow}
-            chipColor="warning"
-            chipLabel="active"
-          />
+          <KpiCard icon={<Autorenew color="warning" />} title="Working" value={workingNow} chipColor="warning" chipLabel="active" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            icon={<HelpOutline color="info" />}
-            title="Input required"
-            value={inputReqNow}
-            chipColor="info"
-            chipLabel="awaiting user"
-          />
+          <KpiCard icon={<HelpOutline color="info" />} title="Input required" value={inputReqNow} chipColor="info" chipLabel="awaiting user" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            icon={<ErrorOutline color="error" />}
-            title="Failed"
-            value={failedNow}
-            chipColor="error"
-            chipLabel="errors"
-          />
+          <KpiCard icon={<ErrorOutline color="error" />} title="Failed" value={failedNow} chipColor="error" chipLabel="errors" />
         </Grid>
 
-        {/* Row 2 */}
+        {/* weitere Karten */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            icon={<HourglassEmpty color="info" />}
-            title="Submitted"
-            value={submittedNow}
-            chipColor="info"
-            chipLabel="submitted"
-          />
+          <KpiCard icon={<HourglassEmpty color="info" />} title="Submitted" value={submittedNow} chipColor="info" chipLabel="submitted" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            icon={<LockOutlined color="info" />}
-            title="Auth required"
-            value={authReqNow}
-            chipColor="info"
-            chipLabel="auth-required"
-          />
+          <KpiCard icon={<LockOutlined color="info" />} title="Auth required" value={authReqNow} chipColor="info" chipLabel="auth-required" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KpiCard
-            icon={<Block color="error" />}
-            title="Rejected"
-            value={rejectedNow}
-            chipColor="error"
-            chipLabel="rejected"
-          />
+          <KpiCard icon={<Block color="error" />} title="Rejected" value={rejectedNow} chipColor="error" chipLabel="rejected" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KpiCard icon={<DoDisturbOutlined />} title="Canceled" value={canceledNow} chipLabel="canceled" />
         </Grid>
 
-        {/* Row 3 (only if present) */}
         {unknownNow > 0 && (
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <KpiCard icon={<HelpOutline />} title="Unknown" value={unknownNow} chipLabel="unknown" />
@@ -318,7 +276,6 @@ export default function DashboardPage() {
               <Typography variant="subtitle2" color="text.secondary">
                 Completions per hour (last 8h)
               </Typography>
-
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Chip size="small" icon={<CheckCircleOutline />} label={`24h completions: ${completed24h}`} />
                 <Chip
@@ -330,15 +287,9 @@ export default function DashboardPage() {
                 <Chip size="small" icon={<Autorenew />} label={`WIP age P50: ${fmtDuration(p50 ?? null)}`} />
                 <Chip size="small" icon={<Autorenew />} label={`WIP age P95: ${fmtDuration(p95 ?? null)}`} />
               </Stack>
-
               <Box sx={{ height: 260, mt: 1 }}>
-                <BarChart
-                  xAxis={[{ data: trendX, scaleType: "band" }]}
-                  series={[{ data: trendY }]}
-                  height={260}
-                />
+                <BarChart xAxis={[{ data: trendX, scaleType: "band" }]} series={[{ data: trendY }]} height={260} />
               </Box>
-
               <Typography variant="caption" color="text.secondary">
                 Note: Times are based on the task’s <code>status.timestamp</code>.
               </Typography>
@@ -346,7 +297,7 @@ export default function DashboardPage() {
           </Card>
         </Grid>
 
-        {/* Recent tasks with scroll */}
+        {/* Recent */}
         <Grid size={{ xs: 12, md: 4 }}>
           <Card>
             <Typography variant="subtitle2" color="text.secondary">
@@ -369,11 +320,7 @@ export default function DashboardPage() {
                 return (
                   <ListItem key={t.id} disableGutters secondaryAction={<Chip size="small" label={t.status.state} />}>
                     <ListItemText
-                      primary={
-                        <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                          {shortId(t.id)}
-                        </Typography>
-                      }
+                      primary={<Typography variant="body2" sx={{ fontFamily: "monospace" }}>{shortId(t.id)}</Typography>}
                       secondary={<Typography variant="caption">{tsLabel}</Typography>}
                     />
                   </ListItem>

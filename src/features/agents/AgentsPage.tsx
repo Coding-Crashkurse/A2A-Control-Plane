@@ -342,7 +342,7 @@ export default function AgentsPage() {
                               color="primary"
                               label={`preferred: ${summary.preferredTransport}`}
                             />
-                            {summary.interfaces.map((i) => (
+                            {summary.interfaces.map((i: any) => (
                               <Chip
                                 key={`${i.transport}|${i.url}`}
                                 size="small"

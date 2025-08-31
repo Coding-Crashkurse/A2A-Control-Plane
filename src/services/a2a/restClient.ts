@@ -1,39 +1,35 @@
+// REST client that ALWAYS talks to the proxy at /api.
+
 import type { SendParams, Task, Message as A2AMessage } from "./types";
 import type { AgentConn } from "./http";
-import { reqJSON, reqSSE } from "./http";
+import { reqJSON, reqSSE, defaultConn } from "./http";
 
-/** List all tasks */
-export function listTasks(conn: AgentConn): Promise<Task[]> {
+export function listTasks(conn: AgentConn = defaultConn): Promise<Task[]> {
   return reqJSON(conn, "/v1/tasks");
 }
 
-/** Get a single task */
-export function getTask(conn: AgentConn, id: string): Promise<Task> {
+export function getTask(conn: AgentConn = defaultConn, id: string): Promise<Task> {
   return reqJSON(conn, `/v1/tasks/${encodeURIComponent(id)}`);
 }
 
-/** Cancel a task */
-export function cancelTask(conn: AgentConn, id: string): Promise<Task> {
+export function cancelTask(conn: AgentConn = defaultConn, id: string): Promise<Task> {
   return reqJSON(conn, `/v1/tasks/${encodeURIComponent(id)}:cancel`, {
     method: "POST",
   });
 }
 
-/** Send a message (non-streaming) */
 export function sendMessage(
-  conn: AgentConn,
+  conn: AgentConn = defaultConn,
   body: SendParams
 ): Promise<Task | A2AMessage> {
   return reqJSON(conn, "/v1/message:send", {
     method: "POST",
     body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
   });
 }
 
-/** Stream a message (SSE) */
 export async function streamMessage(
-  conn: AgentConn,
+  conn: AgentConn = defaultConn,
   body: SendParams,
   onEvent: (e: any) => void
 ) {
@@ -41,17 +37,14 @@ export async function streamMessage(
     method: "POST",
     body: JSON.stringify(body),
     onEvent,
-    headers: { "Content-Type": "application/json" },
   });
 }
 
-/** Re-subscribe to a task's stream (SSE) */
 export async function resubscribeTask(
-  conn: AgentConn,
+  conn: AgentConn = defaultConn,
   id: string,
   onEvent: (e: any) => void
 ) {
-  // Spec: POST /v1/tasks/{id}:subscribe
   await reqSSE(conn, `/v1/tasks/${encodeURIComponent(id)}:subscribe`, {
     method: "POST",
     onEvent,
